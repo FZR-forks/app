@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import enum
 import os
 import random
@@ -18,6 +20,7 @@ from sqlalchemy import text, desc, CheckConstraint, Index, Column
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import deferred
+from sqlalchemy.sql import and_
 from sqlalchemy_utils import ArrowType
 
 from app import s3
@@ -604,6 +607,10 @@ class User(Base, ModelMixin, UserMixin, PasswordOracle):
             user_id=self.id
         )
         if coinbase_subscription and coinbase_subscription.is_active():
+            return True
+
+        partner_sub: PartnerSubscription = PartnerSubscription.find_by_user_id(self.id)
+        if partner_sub and partner_sub.is_active():
             return True
 
         return False
@@ -3103,6 +3110,43 @@ class PartnerUser(Base, ModelMixin):
     __table_args__ = (
         sa.UniqueConstraint("user_id", "partner_id", name="uq_user_id_partner_id"),
     )
+
+
+class PartnerSubscription(Base, ModelMixin):
+    """
+    For users who have a subscription via a partner
+    """
+
+    __tablename__ = "partner_subscription"
+
+    partner_user_id = sa.Column(
+        sa.ForeignKey(PartnerUser.id, ondelete="cascade"), nullable=False, unique=True
+    )
+
+    # when the partner subscription ends
+    end_at = sa.Column(ArrowType, nullable=False)
+
+    partner_user = orm.relationship(PartnerUser)
+
+    @classmethod
+    def find_by_user_id(cls, user_id: int) -> Optional[PartnerSubscription]:
+        res = (
+            Session.query(PartnerSubscription, PartnerUser)
+            .filter(
+                and_(
+                    PartnerUser.user_id == user_id,
+                    PartnerSubscription.partner_user_id == PartnerUser.id,
+                )
+            )
+            .first()
+        )
+        if res:
+            subscription, partner_user = res
+            return subscription
+        return None
+
+    def is_active(self):
+        return self.end_at > arrow.now()
 
 
 # endregion
