@@ -2,6 +2,7 @@ name: Run tests & Publish to Docker Registry
 
 on: 
   push:
+  workflow_dispatch:
 
 jobs:
   build:
